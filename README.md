@@ -67,6 +67,8 @@ The interface labels each state as `READY`, `WATCHING`, `VALIDATING`, `GRABBED`,
 ~/Library/Group Containers/K36BKF7T3D.group.com.apple.configurator/Library/Caches/Assets/TemporaryItems/MobileApps
 ```
 
+Both `*.ipa` files and extensionless numeric App ID filenames observed with Apple Configurator 2.21 (for example, `1637413102`) are supported. Extensionless candidates must contain `Payload/*.app/Info.plist`; unrelated ZIPs are ignored. Saved numeric files receive an `.ipa` suffix.
+
 When watching starts, it records the IPAs already present. For each new or changed IPA, it verifies that the file is a complete, readable ZIP archive. Incomplete candidates are reconsidered when they change, without blocking other downloads. A valid candidate is copied through a temporary file, validated again, and published without overwriting an existing file.
 
 Unlike tools that authenticate with App Store services themselves, `ipagrab` has no network or account integration. That keeps its role small, but also means it cannot work without Configurator, a connected device, and an eligible Apple account.

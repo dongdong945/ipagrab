@@ -5,7 +5,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ipagrab-test.XXXXXX") || exit 1
 trap 'rm -rf "$TMP"' EXIT
 export IPAGRAB_CACHE="$TMP/cache with space" IPAGRAB_DEST="$TMP/dest with space" IPAGRAB_SOURCE_ONLY=1 NO_COLOR=1
-mkdir -p "$IPAGRAB_CACHE" "$IPAGRAB_DEST" "$TMP/fixture/Payload"
+mkdir -p "$IPAGRAB_CACHE" "$IPAGRAB_DEST" "$TMP/fixture/Payload/Test.app"
 . "$ROOT/ipagrab"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -17,8 +17,8 @@ assert_count() {
 }
 make_ipa() {
   local out=$1
-  printf 'test payload\n' > "$TMP/fixture/Payload/app"
-  (cd "$TMP/fixture" && zip -qr "$out" Payload) || fail "could not create test IPA"
+  printf 'test payload\n' > "$TMP/fixture/Payload/Test.app/Info.plist"
+  (cd "$TMP/fixture" && zip -qr - Payload) > "$out" || fail "could not create test IPA"
 }
 
 validate_paths || fail "temporary cache and destination failed preflight"
@@ -76,6 +76,38 @@ LAST_CANDIDATE="$IPAGRAB_CACHE/complete.ipa"
 reject_candidate "$IPAGRAB_CACHE/partial.ipa"
 assert_count 1 "$IPAGRAB_DEST"
 
+make_ipa "$IPAGRAB_CACHE/1637413101"
+snapshot_cache
+[ -z "$(find_candidate)" ] || fail "stale extensionless IPA was selected"
+make_ipa "$IPAGRAB_CACHE/1637413102"
+[ "$(find_candidate)" = "$IPAGRAB_CACHE/1637413102" ] || fail "new extensionless IPA was not selected"
+copy_complete_ipa "$IPAGRAB_CACHE/1637413102" || fail "extensionless IPA was not copied"
+case "$RESULT" in *_1637413102.ipa) ;; *) fail "extensionless output is missing .ipa suffix";; esac
+unzip -tqq "$RESULT" || fail "extensionless IPA output is not a readable ZIP"
+cmp "$IPAGRAB_CACHE/1637413102" "$RESULT" || fail "extensionless IPA bytes changed while copying"
+assert_count 2 "$IPAGRAB_DEST"
+
+snapshot_cache
+make_ipa "$IPAGRAB_CACHE/1637413103.tmp"
+make_ipa "$IPAGRAB_CACHE/123notes.zip"
+[ -z "$(find_candidate)" ] || fail "non-IPA filenames were selected"
+mkdir -p "$TMP/unrelated"
+printf 'unrelated ZIP\n' > "$TMP/unrelated/readme.txt"
+(cd "$TMP/unrelated" && zip -qr - readme.txt) > "$IPAGRAB_CACHE/1637413104" || fail "could not create unrelated ZIP"
+copy_complete_ipa "$IPAGRAB_CACHE/1637413104" && fail "unrelated numeric ZIP was copied"
+assert_count 2 "$IPAGRAB_DEST"
+
+snapshot_cache
+dd if="$IPAGRAB_CACHE/1637413102" of="$IPAGRAB_CACHE/1637413105" bs=1 count=20 2>/dev/null
+[ "$(find_candidate)" = "$IPAGRAB_CACHE/1637413105" ] || fail "partial extensionless IPA was not selected"
+copy_complete_ipa "$IPAGRAB_CACHE/1637413105" && fail "partial extensionless IPA was copied"
+reject_candidate "$IPAGRAB_CACHE/1637413105"
+[ -z "$(find_candidate)" ] || fail "unchanged partial extensionless IPA was reconsidered"
+cp "$IPAGRAB_CACHE/1637413102" "$IPAGRAB_CACHE/1637413105"
+[ "$(find_candidate)" = "$IPAGRAB_CACHE/1637413105" ] || fail "completed extensionless IPA was not reconsidered"
+copy_complete_ipa "$IPAGRAB_CACHE/1637413105" || fail "completed extensionless IPA was not copied"
+assert_count 3 "$IPAGRAB_DEST"
+
 rm -f "$IPAGRAB_DEST"/*
 make_ipa "$IPAGRAB_CACHE/collision.ipa"
 date() { printf '120000\n'; }
@@ -84,6 +116,11 @@ copy_complete_ipa "$IPAGRAB_CACHE/collision.ipa" || fail "collision copy failed"
 [ "$(cat "$IPAGRAB_DEST/120000_collision.ipa")" = "keep me" ] || fail "existing destination was overwritten"
 assert_file "$IPAGRAB_DEST/120000_collision_1.ipa"
 unzip -tqq "$IPAGRAB_DEST/120000_collision_1.ipa" || fail "collision copy is not a readable ZIP"
+printf 'keep numeric output\n' > "$IPAGRAB_DEST/120000_1637413102.ipa"
+copy_complete_ipa "$IPAGRAB_CACHE/1637413102" || fail "extensionless collision copy failed"
+[ "$(cat "$IPAGRAB_DEST/120000_1637413102.ipa")" = "keep numeric output" ] || fail "existing numeric destination was overwritten"
+assert_file "$IPAGRAB_DEST/120000_1637413102_1.ipa"
+unzip -tqq "$IPAGRAB_DEST/120000_1637413102_1.ipa" || fail "extensionless collision copy is not a readable ZIP"
 
 HELP=$(
   unset IPAGRAB_SOURCE_ONLY
